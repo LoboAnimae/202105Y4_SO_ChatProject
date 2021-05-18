@@ -1,5 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <netinet/in.h>
+#ifdef _WIN64
+#include "WinSock2.h"
+#else
+#include <arpa/inet.h>
+
+#endif
 
 int main(int argc, char *argv[])
 {
