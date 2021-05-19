@@ -1,3 +1,3 @@
 all: client.cpp server.cpp
-	gcc client.cpp -o client
-	gcc server.cpp -o server
+	g++ client.cpp -o client
+	g++ server.cpp -o server
