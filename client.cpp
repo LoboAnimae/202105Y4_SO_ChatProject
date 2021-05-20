@@ -211,5 +211,5 @@ int main(int argc, char const *argv[])
 
     strcpy(buffer, serialized_registration.c_str());
     send(sockfd, buffer, serialized_registration.size() + 1, 0);
-    recv(sockfd, buffer, BUFFERSIZE, 0);
+    recv(sockfd, buffer, sizeof(chat::ServerResponse), 0);
 }

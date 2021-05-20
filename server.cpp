@@ -11,6 +11,31 @@
 #include <arpa/inet.h>
 #include "protocol.pb.h"
 #include "errors.h"
+#include <sstream>
+#define BUFFERSIZE 4096
+
+struct User
+{
+    char ip[INET_ADDRSTRLEN];
+    std::string username;
+    std::string status;
+    int socket_descriptor;
+};
+
+struct UserNode
+{
+    User *prev;
+    User user;
+    User *next;
+};
+
+UserNode *registered_users;
+
+int get_user_amount()
+{
+    int size = sizeof(registered_users) / sizeof(UserNode);
+    return size;
+}
 
 bool in_array(std::string to_check, int size, std::string in_string)
 {
@@ -44,6 +69,15 @@ bool valid_port(std::string port)
     }
 
     return true;
+}
+
+void *do_something(void *params)
+{
+    User user;
+    User *this_params = (User *)params;
+    int local_socket_descriptor = this_params->socket_descriptor;
+    std::string local_ip = this_params->ip;
+    char buffer[BUFFERSIZE];
 }
 
 int main(int argc, char *argv[])
@@ -87,8 +121,9 @@ int main(int argc, char *argv[])
     // Create the server here
     sockaddr_in server, in_conn;
     socklen_t new_conn_size;
-    int socket_fd, new_con_fd;
+    int socket_descriptor, connection_descriptor;
     char incoming_con_addr[INET_ADDRSTRLEN];
+    char buffer[BUFFERSIZE];
 
     server.sin_family = AF_INET;
     server.sin_port = htons(atoi(port.c_str()));
@@ -96,14 +131,47 @@ int main(int argc, char *argv[])
 
     memset(server.sin_zero, 0, sizeof(server.sin_zero));
 
-    socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_fd == -1)
+    socket_descriptor = socket(AF_INET, SOCK_STREAM, 0);
+    if (socket_descriptor == -1)
         exit(EXIT_FAILURE);
 
-    int binder = bind(socket_fd, (struct sockaddr *)&server, sizeof(server));
-    if (binder == -1)
+    int binder_descriptor = bind(socket_descriptor, (struct sockaddr *)&server, sizeof(server));
+    if (binder_descriptor == -1)
     {
-        close(socket_fd);
+        close(socket_descriptor);
         exit(EXIT_FAILURE);
     }
+
+    int listener_descriptor = listen(socket_descriptor, 5);
+
+    if (listener_descriptor == -1)
+    {
+        std::cout << "Cannot listen in socket " << socket_descriptor << ". Exiting." << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    std::cout << "Port has been binded to " << port << "!" << std::endl;
+
+    do
+    {
+        new_conn_size = sizeof(in_conn);
+        connection_descriptor = accept(socket_descriptor, (struct sockaddr *)&in_conn, &new_conn_size);
+        if (connection_descriptor == -1)
+        {
+            std::cout << "Could not accept a connection! :(" << std::endl;
+            continue;
+        }
+        std::cout << "Connection has been achieved" << std::endl;
+        User new_user;
+        inet_ntop(AF_INET, &(in_conn.sin_addr), new_user.ip, INET_ADDRSTRLEN);
+
+        std::cout << "Reached" << std::endl;
+        new_user.socket_descriptor = connection_descriptor;
+
+        pthread_t tid;
+        pthread_attr_t attrs;
+        pthread_attr_init(&attrs);
+        pthread_create(&tid, &attrs, do_something, (void *)&new_user);
+
+    } while (true);
 }
