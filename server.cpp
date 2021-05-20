@@ -20,11 +20,11 @@
 #define INACTIVE "INACTIVE"
 #define BUSY "BUSY"
 
-#define INFO "INFO"
-#define WARNING "WARNING"
-#define ERROR "ERROR"
+#define INFO "    INFO   "
+#define WARNING "  WARNING  "
+#define ERROR "   ERROR   "
 #define FATAL "FATAL_ERROR"
-#define SUCCESS "SUCCESS"
+#define SUCCESS "  SUCCESS  "
 
 struct User
 {
@@ -121,9 +121,12 @@ void *client_process_threading(void *params)
 
     std::string serialized_sent_message;
     chat::ClientPetition client_petition;
-    std::string log_message;
-
+    std::string logger;
+    bool user_has_registered;
 #pragma endregion
+
+    logger = "Created a thread for socket " + std::to_string(local_socket_descriptor);
+    create_log(&logger, SUCCESS);
 
     do
     {
@@ -134,21 +137,59 @@ void *client_process_threading(void *params)
             client_response = recv(local_socket_descriptor, buffer, BUFFERSIZE, 0);
             if (!client_response)
             {
-                log_message = "STATUS CHANGE(CLIENT DISCONNECT)";
-                create_log(&log_message, INFO);
+                logger = "STATUS CHANGE(CLIENT DISCONNECT)";
+                create_log(&logger, INFO);
 
-                log_message = "DISCONNECTING USER \"" + this_user.username + "\" (" + this_user.ip + ") FROM SERVER.";
-                create_log(&log_message, INFO);
+                logger = "DISCONNECTING USER \"" + this_user.username + "\" (" + this_user.ip + ") FROM SERVER.";
+                create_log(&logger, INFO);
                 // set_client_status(&this_user, INACTIVE);
                 this_user.status = INACTIVE;
 
-                log_message = "SET USER \"" + this_user.username + "\" (" + this_user.ip + ") AS " + this_user.status;
-                create_log(&log_message, SUCCESS);
+                logger = "SET USER \"" + this_user.username + "\" (" + this_user.ip + ") AS " + this_user.status;
+                create_log(&logger, SUCCESS);
+
+                if (close(local_socket_descriptor) == -1)
+                {
+                    logger = "Could not close socket " + std::to_string(local_socket_descriptor);
+                    create_log(&logger, ERROR);
+                }
+                else
+                {
+                    logger = "Closed socket " + std::to_string(local_socket_descriptor);
+                    create_log(&logger, SUCCESS);
+                }
             }
             break;
         }
-
         client_petition.ParseFromString(buffer);
+
+        while (this_user.username.empty())
+        {
+            if (client_petition.option() != 1)
+            {
+                continue;
+            }
+            chat::UserRegistration registration_form = (chat::UserRegistration)client_petition.registration();
+
+            this_user.username = registration_form.username();
+            strcpy(this_user.ip, registration_form.ip().c_str());
+            logger = "User in socket " + std::to_string(local_socket_descriptor) + " (" + this_user.username + ") has been registered.";
+            create_log(&logger, SUCCESS);
+
+            // Add to the list of registered users
+            registered_users.push_back(this_user);
+
+            // Send correct registration
+            chat::ServerResponse *correct_registration_response = new chat::ServerResponse();
+
+            correct_registration_response->set_option(1);
+            correct_registration_response->set_code(200);
+            std::string response;
+            correct_registration_response->SerializeToString(&response);
+
+            strcpy(buffer, response.c_str());
+            send(local_socket_descriptor, buffer, response.size() + 1, 0);
+        }
 
         switch (client_petition.option())
         {
@@ -165,6 +206,7 @@ void *client_process_threading(void *params)
             break;
             // Fetch messages
         case 4:
+
             break;
             // User Information
         case 5:
@@ -286,6 +328,8 @@ int main(int argc, char *argv[])
     int binder_descriptor = bind(socket_descriptor, (struct sockaddr *)&server, sizeof(server));
     if (binder_descriptor == -1)
     {
+        logger = "Could not bind to socket";
+        create_log(&logger, FATAL);
         close(socket_descriptor);
         exit(EXIT_FAILURE);
     }
@@ -319,7 +363,7 @@ int main(int argc, char *argv[])
 
         new_user.socket_descriptor = connection_descriptor;
 
-        logger = "A new client has connected. Creating thread for socket" + std::to_string(connection_descriptor);
+        logger = "A new client has connected. Creating thread for socket " + std::to_string(connection_descriptor);
         create_log(&logger, INFO);
         pthread_t tid;
         pthread_attr_t attrs;
