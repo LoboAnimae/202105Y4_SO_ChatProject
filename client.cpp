@@ -8,6 +8,7 @@
 #include <queue>
 #include "protocol.pb.h"
 #include "errors.h"
+#include <sstream>
 #define BUFFERSIZE 4096
 
 // Variable initialization
@@ -64,6 +65,13 @@ bool check_valid_ip(std::string *ip)
     // std::cout << "Final dot count: " << dot_count << std::endl;
 
     return dot_count == dot_needed;
+}
+
+void *get_info(struct sockaddr *socket_address)
+{
+    if (socket_address->sa_family == AF_INET)
+        return &(((struct sockaddr_in *)socket_address)->sin_addr);
+    return &(((struct sockaddr_in6 *)socket_address)->sin6_addr);
 }
 
 int main(int argc, char const *argv[])
@@ -127,8 +135,9 @@ int main(int argc, char const *argv[])
     std::cout << "Welcome to " << server_ip << ":" << server_port << ", " << username << ".\nWhat would you like to do?" << std::endl;
     // After this point, the user is logged in, and must be registered in the server.
 
-    int sockfd, successful_connection, byte_num, reallocV;
+    int sockfd, successful_connection_fd, byte_num, reallocV;
     char buffer[BUFFERSIZE];
+    std::string s;
 
     struct addrinfo hints, *server_info, *p;
 
@@ -151,8 +160,8 @@ int main(int argc, char const *argv[])
         if (sockfd == -1)
             continue;
 
-        successful_connection = connect(sockfd, p->ai_addr, p->ai_addrlen);
-        if (successful_connection == -1)
+        successful_connection_fd = connect(sockfd, p->ai_addr, p->ai_addrlen);
+        if (successful_connection_fd == -1)
         {
             close(sockfd);
             continue;
@@ -162,4 +171,45 @@ int main(int argc, char const *argv[])
 
     if (!p)
         create_error(CONNERR, true);
+
+    void *checkpoint = get_info((struct sockaddr *)p->ai_addr->sa_data);
+
+    inet_ntop(p->ai_family, checkpoint, (char *)s.c_str(), sizeof(s));
+    freeaddrinfo(server_info);
+    // And, we're connected :D (In theory...)
+
+    // Try to register the user
+    chat::UserRegistration *user_registration_obj = new chat::UserRegistration;
+
+    // RULE OF THUMB
+    // set_ALLOCATED => Usage with variables
+    // set_ => Usage with literals
+    user_registration_obj->set_allocated_username(&username);
+    user_registration_obj->set_allocated_ip(&s);
+
+    /*
+        let reg = {one: property, two: property...}
+         |------------------------------|
+         |   user_registration_obj      |
+         |------------------------------| <------|
+                                                 |
+        petition -> registration -> ptr ---------|
+
+        |string N*char| int32 | int64 |...| ||||
+        |               string              |
+        |10111011010100101010101010101010101|
+
+        sizeof(int) == sizeof(char) <-- TRUE
+    */
+
+    chat::ClientPetition *petition = new chat::ClientPetition;
+
+    petition->set_allocated_registration(user_registration_obj);
+
+    std::string serialized_registration;
+    petition->SerializeToString(&serialized_registration);
+
+    strcpy(buffer, serialized_registration.c_str());
+    send(sockfd, buffer, serialized_registration.size() + 1, 0);
+    recv(sockfd, buffer, BUFFERSIZE, 0);
 }
