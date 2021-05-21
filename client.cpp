@@ -99,6 +99,80 @@ void print_header(std::string server_ip, std::string server_port, std::string us
               << std::endl;
 }
 
+void print_menu(int menu)
+{
+    if (menu == 1)
+    {
+        std::cout << "1. Go to the General Chat" << std::endl;
+        std::cout << "2. Send a Private Message" << std::endl;
+        std::cout << "3. Change your Status" << std::endl;
+        std::cout << "4. List all active users" << std::endl;
+        std::cout << "5. Get information about a specific user" << std::endl;
+        std::cout << "6. Help" << std::endl;
+        std::cout << "7. Exit" << std::endl;
+        std::cout << ">>> ";
+    }
+    else if (menu == 2)
+    {
+        std::cout << "1. Fetch messages\n2. Send a message\n3. Go back\n>>> ";
+    }
+    else if (menu == 3)
+    {
+        std::cout << "1. Active\n2. Busy\n3. Invisible (Inactive)\n4. Go back\n>>> ";
+    }
+}
+
+/**
+ * @brief Sends a request to the server to change status
+ * @param buffer Pointer to the buffer so that there is no memory duplicity
+ * @param socket_file_descriptor File descriptor for the socket
+ * @param new_status 1 = Active; 2 = Busy; 3 = Inactive
+ * @param username The user's username
+ * @returns True if successful, False otherwise 
+ */
+bool change_status_request(int socket_file_descriptor, int new_status, std::string *username)
+{
+    std::string status;
+    if (new_status == 1)
+        status = "ACTIVE";
+    else if (new_status == 2)
+        status = "BUSY";
+    else if (new_status == 3)
+        status = "INACTIVE";
+    // Instantiate our variables
+    std::string serialized_request;
+    char buffer[BUFFERSIZE];
+
+    auto body = new chat::ChangeStatus;
+    auto request = new chat::ClientPetition;
+    chat::ServerResponse response;
+
+    // Fill our request
+    body->set_allocated_username(username);
+    body->set_status(status);
+
+    // Serialize the request
+    request->set_option(3);
+    request->set_allocated_change(body);
+    request->SerializeToString(&serialized_request);
+
+    // Prepare the data in the buffer
+    strcpy(buffer, serialized_request.c_str());
+
+    // Send the request
+    send(socket_file_descriptor, buffer, serialized_request.size() + 1, 0);
+
+    recv(socket_file_descriptor, buffer, BUFFERSIZE, 0);
+    response.ParseFromString(buffer);
+
+    if (response.code() != 200)
+    {
+        return false;
+    }
+
+    return true;
+}
+
 int main(int argc, char const *argv[])
 {
     bool set_values = false;
@@ -276,16 +350,9 @@ int main(int argc, char const *argv[])
     {
         system("clear");
         std::string temp_option;
-        int option;
+        int suboption, option;
         print_header(server_ip, server_port, username);
-        std::cout << "1. Go to the General Chat" << std::endl;
-        std::cout << "2. Send a Private Message" << std::endl;
-        std::cout << "3. Change your Status" << std::endl;
-        std::cout << "4. List all active users" << std::endl;
-        std::cout << "5. Get information about a specific user" << std::endl;
-        std::cout << "6. Help" << std::endl;
-        std::cout << "7. Exit" << std::endl;
-        std::cout << ">>> ";
+        print_menu(1);
 
         getline(std::cin, temp_option);
         option = atoi(temp_option.c_str());
@@ -296,8 +363,8 @@ int main(int argc, char const *argv[])
             // Go to the general chat (fetch messages)
         case 1:
             print_header(server_ip, server_port, username);
-            int suboption;
-            std::cout << "1. Fetch messages\n2. Send a message\n3. Go back\n>>> ";
+            temp_option = "";
+            print_menu(2);
             getline(std::cin, temp_option);
             suboption = atoi(temp_option.c_str());
             switch (suboption)
@@ -318,6 +385,28 @@ int main(int argc, char const *argv[])
             break;
             // Change the status
         case 3:
+            temp_option = "";
+            print_menu(3);
+            getline(std::cin, temp_option);
+
+            suboption = atoi(temp_option.c_str());
+            if (suboption > 0 && suboption < 4)
+            {
+                bool success;
+
+                success = change_status_request(sockfd, suboption, &username);
+
+                if (success)
+                {
+                    std::cout << "Status has been changed" << std::endl;
+                }
+                else
+                {
+                    std::cout << "There was a problem with the server and it returned code 500" << std::endl;
+                }
+                std::cout << "Press enter to continue" << std::endl;
+                getline(std::cin, temp_option);
+            }
             break;
             // List the users in a chat
         case 4:
@@ -335,6 +424,10 @@ int main(int argc, char const *argv[])
             getline(std::cin, temp_option);
             close(sockfd);
             exit(EXIT_SUCCESS);
+            break;
+
+        default:
+            std::cout << "Unrecognized option" << std::endl;
             break;
         }
     } while (true);

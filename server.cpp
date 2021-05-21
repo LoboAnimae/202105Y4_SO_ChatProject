@@ -110,6 +110,26 @@ bool valid_port(std::string port)
 //     return false;
 // }
 
+bool change_status(chat::ChangeStatus body, User *modifiable_user)
+{
+    std::string logger;
+
+    logger = "Changing user status for user " + (*modifiable_user).username + " from  " + (*modifiable_user).status + " to " + (body.status());
+    create_log(&logger, INFO);
+    auto new_status = body.status();
+
+    // if (new_status == ACTIVE || new_status == BUSY || new_status == INACTIVE)
+    // {
+    //     logger = "A valid status could not be found while trying to change " + (*modifiable_user).status + "'s status to " + body.status();
+    //     create_log(&logger, ERROR);
+    //     return false;
+    // }
+    (*modifiable_user).status = new_status;
+    logger = "Status has been changed for " + (*modifiable_user).username + " to " + body.status();
+    create_log(&logger, SUCCESS);
+    return true;
+}
+
 void *client_process_threading(void *params)
 {
 #pragma region variables
@@ -122,6 +142,8 @@ void *client_process_threading(void *params)
     std::string serialized_sent_message;
     chat::ClientPetition client_petition;
     std::string logger;
+    auto response = new chat::ServerResponse;
+
     bool user_has_registered;
 #pragma endregion
 
@@ -190,7 +212,7 @@ void *client_process_threading(void *params)
             strcpy(buffer, response.c_str());
             send(local_socket_descriptor, buffer, response.size() + 1, 0);
         }
-
+        this_user.status = ACTIVE;
         switch (client_petition.option())
         {
             // User registration
@@ -203,16 +225,29 @@ void *client_process_threading(void *params)
             break;
             // Status Change
         case 3:
+            bool success;
+            success = change_status(client_petition.change(), &this_user);
+
+            response->set_option(3);
+            if (success)
+            {
+                response->set_code(200);
+            }
+            else
+            {
+                response->set_code(500);
+            }
+
+            response->SerializeToString(&serialized_sent_message);
+            strcpy(buffer, serialized_sent_message.c_str());
+
+            send(local_socket_descriptor, buffer, serialized_sent_message.size() + 1, 0);
             break;
             // Fetch messages
         case 4:
-
             break;
             // User Information
         case 5:
-            break;
-
-        default:
             break;
         }
 
