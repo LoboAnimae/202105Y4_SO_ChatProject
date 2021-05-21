@@ -35,6 +35,8 @@ struct User
     int socket_descriptor;
 };
 
+std::list<std::string> all_messages;
+
 std::map<std::string, User> registered_users;
 
 #pragma region FunctionDeclaration

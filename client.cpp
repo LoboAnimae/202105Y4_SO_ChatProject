@@ -6,9 +6,13 @@
 #include <netdb.h>
 // #include <ifaddrs.h>
 #include <queue>
+#include <list>
 #include "protocol.pb.h"
 #include "errors.h"
+#include <bits/stdc++.h>
 #include <sstream>
+#include <string>
+#include <string.h>
 #define BUFFERSIZE 8000
 
 // Variable initialization
@@ -105,7 +109,7 @@ void print_menu(int menu)
     }
     else if (menu == 2)
     {
-        std::cout << "1. Fetch messages\n2. Send a message\n3. Go back\n>>> ";
+        std::cout << "1. Fetch messages\n2. Send a message\n3. Send a Private Message\n4. Go back\n>>> ";
     }
     else if (menu == 3)
     {
@@ -213,6 +217,144 @@ bool change_status_request(int socket_file_descriptor, int new_status, std::stri
     }
 
     return true;
+}
+
+bool send_message(int local_socket_descriptor, std::string username, std::string recipient = "everyone")
+{
+    std::cout << ">>> ";
+    std::string text;
+    getline(std::cin, text);
+
+    if (!text.empty())
+    {
+        chat::MessageCommunication *message = new chat::MessageCommunication();
+        chat::ClientPetition *request = new chat::ClientPetition();
+        std::string serialized_message;
+        char buffer[BUFFERSIZE];
+
+        message->set_allocated_message(&text);
+        message->set_recipient(recipient);
+        message->set_sender(username);
+
+        request->set_option(4);
+        request->set_allocated_messagecommunication(message);
+        request->SerializeToString(&serialized_message);
+        strcpy(buffer, serialized_message.c_str());
+
+        send(local_socket_descriptor, buffer, serialized_message.size() + 1, 0);
+    }
+}
+bool input_detected = false;
+
+std::list<std::string> messages;
+void *fetch_message(void *params)
+{
+    int local_socket_descriptor = *((int *)params);
+    char buffer[BUFFERSIZE];
+    chat::ServerResponse response;
+    chat::MessageCommunication message;
+    while (true)
+    {
+        recv(local_socket_descriptor, buffer, BUFFERSIZE, 0);
+        response.ParseFromString(buffer);
+
+        if (response.code() == 200)
+        {
+            message = (chat::MessageCommunication)response.messagecommunication();
+
+            std::string new_message;
+            std::string differentiator = "";
+            if (message.recipient() != "everyone")
+                differentiator = "(Direct)";
+
+            new_message = differentiator + "  " + message.sender() + ": " + message.message();
+        }
+        if (input_detected)
+            break;
+    }
+    pthread_exit(NULL);
+}
+
+void *detect_input(void *params)
+{
+    std::string placeholder;
+    getline(std::cin, placeholder);
+    input_detected = true;
+    pthread_exit(NULL);
+}
+
+void go_to_general_chat(int local_socket_descriptor, std::string username)
+{
+    int size = messages.size();
+    pthread_t message_fetcher_thread, input_fetcher_thread;
+    pthread_attr_t attr, attr_ph;
+    std::list<std::string>::iterator iter;
+
+    // Get the messages
+    pthread_attr_init(&attr);
+    pthread_create(&message_fetcher_thread, &attr, fetch_message, (void *)local_socket_descriptor);
+
+    // Expect the user to try and input anything with ENTER key
+
+    pthread_attr_init(&attr_ph);
+    pthread_create(&input_fetcher_thread, &attr_ph, detect_input, 0);
+    while (true)
+    {
+        if (size != messages.size())
+        {
+            for (iter = messages.begin(); iter != messages.end(); iter++)
+            {
+                for (int i = 0; i != size; i++)
+                {
+                    iter = std::next(iter);
+                }
+                std::cout << (*iter) << std::endl;
+            }
+            size = messages.size();
+        }
+        // detect the input
+        if (input_detected)
+        {
+            return;
+        }
+    }
+}
+
+void grab_user_info(int local_socket_descriptor)
+{
+    std::string username;
+
+    std::cout << "Please specify a username: ";
+    getline(std::cin, username);
+    chat::UserRequest *usr = new chat::UserRequest;
+    chat::ClientPetition *request = new chat::ClientPetition();
+
+    usr->set_allocated_user(&username);
+    request->set_option(5);
+    request->set_allocated_users(usr);
+    std::string serialized_message;
+    request->SerializeToString(&serialized_message);
+    char buffer[BUFFERSIZE];
+    strcpy(buffer, serialized_message.c_str());
+    send(local_socket_descriptor, buffer, serialized_message.size() + 1, 0);
+
+    chat::ServerResponse response;
+    recv(local_socket_descriptor, buffer, BUFFERSIZE, 0);
+    response.ParseFromString(buffer);
+
+    if (response.code() == 200)
+    {
+        chat::UserInfo usr = response.userinforesponse();
+
+        std::cout << "User information:\n\t- Username: " << usr.username() << "\n\t- Status: " << usr.status() << "\n\t- IP: " << usr.ip() << std::endl;
+    }
+    else
+    {
+        std::cout << "No users found under that username." << std::endl;
+    }
+    std::string placeholder;
+    std::cout << "Press enter to continue...";
+    getline(std::cin, placeholder);
 }
 
 int main(int argc, char const *argv[])
@@ -402,6 +544,7 @@ int main(int argc, char const *argv[])
         getline(std::cin, temp_option);
         option = atoi(temp_option.c_str());
 
+        std::string recipient;
         system("clear");
         switch (option)
         {
@@ -419,11 +562,20 @@ int main(int argc, char const *argv[])
                 // Go fetch the messages
             case 1:
 #pragma region FETCHMESSAGES
+                go_to_general_chat(sockfd, username);
                 break;
 #pragma endregion
                 // Allow the user to send a message
             case 2:
-#pragma region PRIVATEMESSAGE
+#pragma region SENDMESSAGE
+                send_message(sockfd, username);
+                break;
+#pragma endregion
+            case 3:
+#pragma region SENDPRIVATEMESSAGE
+                std::cout << "Please write the username of the recipient: ";
+                getline(std::cin, recipient);
+                send_message(sockfd, username, recipient);
                 break;
 #pragma endregion
             default:
@@ -434,10 +586,14 @@ int main(int argc, char const *argv[])
 #pragma endregion
             // Try to send a direct message
         case 2:
+#pragma region DIRECT MESSAGES
+            std::cout << "Please write the name of your recipient: ";
+            getline(std::cin, recipient);
+            send_message(sockfd, username, recipient);
             break;
-            // Change the status
+#pragma endregion
 
-            // FINISHED THIS ONE
+            // Change the status
         case 3:
 #pragma region STATUSCHANGE
             temp_option = "";
@@ -465,17 +621,15 @@ int main(int argc, char const *argv[])
             break;
 #pragma endregion
             // List active users in the chat
-
-            // FINISHED THIS ONE
         case 4:
 #pragma region LISTACTIVEUSERS
             success = fetch_all_users(sockfd);
-
             break;
 #pragma endregion
             // Show information about a user
         case 5:
 #pragma region SHOWINFOABOUTUSER
+            grab_user_info(sockfd);
             break;
 #pragma endregion
             // Help
@@ -483,7 +637,6 @@ int main(int argc, char const *argv[])
 #pragma region HELP
             break;
 #pragma endregion
-
             // Exit
         case 7:
 #pragma region EXIT
