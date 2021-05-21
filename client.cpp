@@ -21,6 +21,10 @@ int waiting_server;
 int waiting_user;
 int program_running;
 
+struct params_struct
+{
+    int local_socket;
+};
 struct Addresses
 {
     in_addr *sock1 = nullptr;
@@ -225,49 +229,46 @@ bool send_message(int local_socket_descriptor, std::string username, std::string
     std::string text;
     getline(std::cin, text);
 
-    if (!text.empty())
-    {
-        chat::MessageCommunication *message = new chat::MessageCommunication();
-        chat::ClientPetition *request = new chat::ClientPetition();
-        std::string serialized_message;
-        char buffer[BUFFERSIZE];
+    std::cout << "Your message: " << text << std::endl;
+    std::cout << text.empty() << std::endl;
+    if (text.empty())
+        return false;
 
-        message->set_allocated_message(&text);
-        message->set_recipient(recipient);
-        message->set_sender(username);
+    chat::MessageCommunication *message = new chat::MessageCommunication();
+    chat::ClientPetition *request = new chat::ClientPetition();
+    std::string serialized_message;
+    char buffer[BUFFERSIZE];
 
-        request->set_option(4);
-        request->set_allocated_messagecommunication(message);
-        request->SerializeToString(&serialized_message);
-        strcpy(buffer, serialized_message.c_str());
+    message->set_allocated_message(&text);
+    message->set_recipient(recipient);
+    message->set_sender(username);
 
-        send(local_socket_descriptor, buffer, serialized_message.size() + 1, 0);
-    }
+    request->set_option(4);
+    request->set_allocated_messagecommunication(message);
+    request->SerializeToString(&serialized_message);
+    strcpy(buffer, serialized_message.c_str());
+
+    send(local_socket_descriptor, buffer, serialized_message.size() + 1, 0);
+    getline(std::cin, text);
 }
 bool input_detected = false;
 
 std::list<std::string> messages;
 void *fetch_message(void *params)
 {
-    int local_socket_descriptor = *((int *)params);
+    auto local_socket_descriptor = ((int *)params);
     char buffer[BUFFERSIZE];
     chat::ServerResponse response;
-    chat::MessageCommunication message;
+    chat::MessageCommunication message_manager;
     while (true)
     {
-        recv(local_socket_descriptor, buffer, BUFFERSIZE, 0);
+        recv(*local_socket_descriptor, buffer, BUFFERSIZE, 0);
         response.ParseFromString(buffer);
 
         if (response.code() == 200)
         {
-            message = (chat::MessageCommunication)response.messagecommunication();
-
-            std::string new_message;
-            std::string differentiator = "";
-            if (message.recipient() != "everyone")
-                differentiator = "(Direct)";
-
-            new_message = differentiator + "  " + message.sender() + ": " + message.message();
+            message_manager = (chat::MessageCommunication)response.messagecommunication();
+            std::cout << "Message: " << message_manager.message() << std::endl;
         }
         if (input_detected)
             break;
@@ -292,7 +293,7 @@ void go_to_general_chat(int local_socket_descriptor, std::string username)
 
     // Get the messages
     pthread_attr_init(&attr);
-    pthread_create(&message_fetcher_thread, &attr, fetch_message, (void *)local_socket_descriptor);
+    pthread_create(&message_fetcher_thread, &attr, fetch_message, (void *)&local_socket_descriptor);
 
     // Expect the user to try and input anything with ENTER key
 

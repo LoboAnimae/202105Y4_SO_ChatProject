@@ -166,6 +166,72 @@ bool change_status(chat::ChangeStatus body, std::string username)
     return true;
 }
 
+bool send_message(int local_socket_descriptor, std::string username, chat::MessageCommunication messageObject)
+{
+    chat::ServerResponse *response = new chat::ServerResponse;
+    std::string message = messageObject.message();
+    std::string recipient = messageObject.recipient();
+    std::string serialized_message;
+
+    std::string logger;
+
+    logger = "Trying to send a message to " + recipient + " as \"" + message + "\"";
+    create_log(&logger, INFO);
+    response->set_code(200);
+    response->SerializeToString(&serialized_message);
+    char buffer[BUFFERSIZE];
+    strcpy(buffer, serialized_message.c_str());
+
+    // Send the message back to the client
+    send(local_socket_descriptor, buffer, serialized_message.size() + 1, 0);
+
+    // Send the same message to all other clients
+    std::string general_message;
+
+    if (recipient == "everyone")
+    {
+        general_message = username + ": " + message;
+    }
+    else
+    {
+        general_message = "(To you) " + username + ": " + message;
+    }
+    response->set_code(200);
+    chat::MessageCommunication *message_sender = new chat::MessageCommunication;
+    message_sender->set_allocated_message(&general_message);
+    message_sender->set_recipient(messageObject.recipient());
+    message_sender->set_sender(messageObject.sender());
+    response->set_allocated_messagecommunication(message_sender);
+    response->SerializeToString(&serialized_message);
+    strcpy(buffer, serialized_message.c_str());
+
+    std::map<std::string, User>::iterator iter;
+    if (recipient == "everyone")
+    {
+        for (iter = registered_users.begin(); iter != registered_users.end(); iter++)
+        {
+            if (iter->first != username)
+            {
+                logger = "Sending message to " + std::to_string(iter->second.socket_descriptor) + " (" + iter->second.username + ")";
+                create_log(&logger, INFO);
+                send(iter->second.socket_descriptor, buffer, serialized_message.size() + 1, 0);
+            }
+        }
+    }
+    else
+    {
+        for (iter = registered_users.begin(); iter != registered_users.end(); iter++)
+        {
+            if (iter->first == recipient)
+            {
+                logger = "Sending private message to " + iter->first;
+                create_log(&logger, INFO);
+                send(iter->second.socket_descriptor, buffer, serialized_message.size() + 1, 0);
+            }
+        }
+    }
+}
+
 void *client_process_threading(void *params)
 {
 #pragma region variables
@@ -186,6 +252,12 @@ void *client_process_threading(void *params)
 
     logger = "Created a thread for socket " + std::to_string(local_socket_descriptor);
     create_log(&logger, SUCCESS);
+
+    std::list<std::string> local_messages;
+
+    pthread_t private_message_fetcher;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
 
     do
     {
@@ -250,6 +322,7 @@ void *client_process_threading(void *params)
 
                 // Add to the list of registered users
                 this_user.status = ACTIVE;
+                this_user.socket_descriptor = local_socket_descriptor;
                 registered_users.insert(std::pair<std::string, User>(this_user.username, this_user));
             }
             // Send correct registration
@@ -264,6 +337,7 @@ void *client_process_threading(void *params)
             send(local_socket_descriptor, buffer, response.size() + 1, 0);
         }
         // --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
         switch (client_petition.option())
         {
             // Connected Users
@@ -302,6 +376,9 @@ void *client_process_threading(void *params)
             break;
             // Fetch messages
         case 4:
+            logger = "Attempting to send message from socket " + std::to_string(local_socket_descriptor);
+            create_log(&logger, INFO);
+            send_message(local_socket_descriptor, this_user.username, client_petition.messagecommunication());
             break;
             // User Information
         case 5:
