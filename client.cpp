@@ -254,13 +254,14 @@ bool send_message(int local_socket_descriptor, std::string username, std::string
 bool input_detected = false;
 
 std::list<std::string> messages;
+bool fetcher_active = false;
 void *fetch_message(void *params)
 {
     auto local_socket_descriptor = ((int *)params);
     char buffer[BUFFERSIZE];
     chat::ServerResponse response;
     chat::MessageCommunication message_manager;
-    while (true)
+    while (fetcher_active)
     {
         recv(*local_socket_descriptor, buffer, BUFFERSIZE, 0);
         response.ParseFromString(buffer);
@@ -268,7 +269,7 @@ void *fetch_message(void *params)
         if (response.code() == 200)
         {
             message_manager = (chat::MessageCommunication)response.messagecommunication();
-            std::cout << "Message: " << message_manager.message() << std::endl;
+            std::cout << message_manager.message() << std::endl;
         }
         if (input_detected)
             break;
@@ -287,6 +288,7 @@ void *detect_input(void *params)
 void go_to_general_chat(int local_socket_descriptor, std::string username)
 {
     int size = messages.size();
+    fetcher_active = true;
     pthread_t message_fetcher_thread, input_fetcher_thread;
     pthread_attr_t attr, attr_ph;
     std::list<std::string>::iterator iter;
@@ -316,6 +318,7 @@ void go_to_general_chat(int local_socket_descriptor, std::string username)
         // detect the input
         if (input_detected)
         {
+            fetcher_active = false;
             return;
         }
     }

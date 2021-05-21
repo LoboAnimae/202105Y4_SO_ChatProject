@@ -212,7 +212,6 @@ bool send_message(int local_socket_descriptor, std::string username, chat::Messa
         {
             if (iter->first != username)
             {
-                logger = "Sending message to " + std::to_string(iter->second.socket_descriptor) + " (" + iter->second.username + ")";
                 create_log(&logger, INFO);
                 send(iter->second.socket_descriptor, buffer, serialized_message.size() + 1, 0);
             }
@@ -230,6 +229,39 @@ bool send_message(int local_socket_descriptor, std::string username, chat::Messa
             }
         }
     }
+}
+
+void send_user_info(int local_socket_descriptor, chat::UserRequest user_info)
+{
+    std::map<std::string, User>::iterator iter;
+    chat::ServerResponse *response = new chat::ServerResponse;
+    std::string serialized_message;
+    char buffer[BUFFERSIZE];
+
+    for (iter = registered_users.begin(); iter != registered_users.end(); iter++)
+    {
+        if (iter->first == user_info.user())
+        {
+            chat::UserInfo *usr = new chat::UserInfo;
+
+            usr->set_username(iter->second.username);
+            usr->set_status(iter->second.status);
+            usr->set_ip(iter->second.ip);
+            response->set_code(200);
+            response->set_allocated_userinforesponse(usr);
+            response->SerializeToString(&serialized_message);
+
+            strcpy(buffer, serialized_message.c_str());
+
+            send(local_socket_descriptor, buffer, serialized_message.size() + 1, 0);
+            return;
+        }
+    }
+    response->set_code(500);
+    response->SerializeToString(&serialized_message);
+    strcpy(buffer, serialized_message.c_str());
+
+    send(local_socket_descriptor, buffer, serialized_message.size() + 1, 0);
 }
 
 void *client_process_threading(void *params)
@@ -382,6 +414,7 @@ void *client_process_threading(void *params)
             break;
             // User Information
         case 5:
+            send_user_info(local_socket_descriptor, client_petition.users());
             break;
         }
 
