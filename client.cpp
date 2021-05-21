@@ -119,6 +119,49 @@ void print_menu(int menu)
     {
         std::cout << "1. Active\n2. Busy\n3. Invisible (Inactive)\n4. Go back\n>>> ";
     }
+    else if (menu == 4)
+    {
+        std::string placeholder;
+        std::cout << "Hello! And welcome to the help section.\nIn here, you will be able to see what each option does." << std::endl;
+        std::cout << "This project was made by:\n\t-- Andres Quan | 17652\n\t-- Cristina Bautista |161260\n\t-- Abril Palencia | 18198" << std::endl;
+        std::cout << "\n\
+The first option allows you to chat with other users.\n\
+You can only receive messages when you choose to. This\n\
+is because messages don't exist anywhere but RAM. You\n\
+know. Wouldn't be so secret if they weren't. This also\n\
+means that you can only send messages when you're not\n\
+reading them, for coordination."
+                  << std::endl;
+        std::cout << "\
+Whoever is reading your messages must also be listening\n\
+to them. You can send them private messages too."
+                  << std::endl;
+        std::cout << "\n\
+The second option allows you to send private messages as\n\
+well. All you need to specify a username and press enter."
+                  << std::endl;
+        std::cout << "\n\
+The third option are for Status changes. These allow you\n\
+to let others know that you're active, inactive, or just\n\
+busy."
+                  << std::endl;
+        std::cout << "\n\
+The fourth option allows you to take a look at all registered\n\
+users in the chat. You can check who's active and who's not\n\
+this way!"
+                  << std::endl;
+        std::cout << "\n\
+If you need specific information about a user, just go to the\n\
+fifth option." << std::endl;
+        std::cout << "\n\
+I wonder what the sixth option does."
+                  << std::endl;
+        std::cout << "\n\
+When you're done, you can press any key to go back to the previous\n\
+screen!"
+                  << std::endl;
+        getline(std::cin, placeholder);
+    }
 }
 
 /**
@@ -639,6 +682,7 @@ int main(int argc, char const *argv[])
             // Help
         case 6:
 #pragma region HELP
+            print_menu(4);
             break;
 #pragma endregion
             // Exit
