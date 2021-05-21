@@ -1,5 +1,4 @@
 #include <iostream>
-#include <fstream>
 #include <string>
 #include <stdio.h>
 #include <sys/socket.h>
@@ -13,6 +12,8 @@
 #include "errors.h"
 #include <sstream>
 #include <list>
+#include <map>
+#include <vector>
 #include <bits/stdc++.h>
 #include <time.h>
 #define BUFFERSIZE 4096
@@ -34,7 +35,7 @@ struct User
     int socket_descriptor;
 };
 
-std::list<User> registered_users;
+std::map<std::string, User> registered_users;
 
 #pragma region FunctionDeclaration
 void create_log(std::string *message, std::string log_status);
@@ -48,13 +49,12 @@ int get_user_amount()
 int get_connected_users_amount()
 {
     int i, counter;
-    std::list<User>::iterator iterator;
-    iterator = registered_users.begin();
+    std::map<std::string, User>::iterator iterator;
+
     User temp;
-    for (i = 0; i < get_user_amount(); i++)
+    for (iterator = registered_users.begin(); iterator != registered_users.end(); iterator++)
     {
-        advance(iterator, 1);
-        temp = (User)(*iterator);
+        temp = iterator->second;
 
         if (temp.status == ACTIVE)
             counter++;
@@ -96,27 +96,62 @@ bool valid_port(std::string port)
     return true;
 }
 
-// bool set_client_status(User *user, std::string status)
-// {
-//     int i;
-//     std::list<User>::iterator iterator;
-//     User temp_user = *user;
-//     iterator = std::find(registered_users.begin(), registered_users.end(), temp_user);
-//     if (iterator != registered_users.end())
-//     {
-//         ((User)(*iterator)).status = status;
-//         return true;
-//     }
-//     return false;
-// }
-
-bool change_status(chat::ChangeStatus body, User *modifiable_user)
+bool send_all_connected_users(int local_socket_descriptor)
 {
-    std::string logger;
 
-    logger = "Changing user status for user " + (*modifiable_user).username + " from  " + (*modifiable_user).status + " to " + (body.status());
+    auto sub_request = new chat::ConnectedUsersResponse;
+    auto request = new chat::ServerResponse;
+    std::list<chat::UserInfo>::iterator userinfo_iterator;
+    std::list<chat::UserInfo> current_active_users;
+    std::string serialized_message, logger;
+    char buffer[BUFFERSIZE];
+    int i;
+
+    logger = "Fetching all users for socket " + std::to_string(local_socket_descriptor);
     create_log(&logger, INFO);
-    auto new_status = body.status();
+
+    std::map<std::string, User>::iterator iterator;
+
+    iterator = registered_users.begin();
+
+    while (iterator != registered_users.end())
+    {
+        User current = iterator->second;
+        // if (current.status == "ACTIVO")
+        // {
+        std::string temp_ip;
+        std::stringstream ss;
+        ss << current.ip;
+        temp_ip = ss.str();
+
+        auto adder = sub_request->add_connectedusers();
+        adder->set_username(current.username);
+        adder->set_status(current.status);
+        adder->set_ip(temp_ip);
+        // }
+        iterator++;
+    }
+
+    request->set_option(2);
+    request->set_code(200);
+    request->set_allocated_connectedusers(sub_request);
+    request->SerializeToString(&serialized_message);
+
+    strcpy(buffer, serialized_message.c_str());
+
+    send(local_socket_descriptor, buffer, serialized_message.size() + 1, 0);
+    return true;
+}
+
+bool change_status(chat::ChangeStatus body, std::string username)
+{
+    std::map<std::string, User>::iterator ref;
+    std::string logger, new_status;
+
+    new_status = body.status();
+
+    ref = registered_users.find(username);
+    ref->second.status = new_status;
 
     // if (new_status == ACTIVE || new_status == BUSY || new_status == INACTIVE)
     // {
@@ -124,8 +159,7 @@ bool change_status(chat::ChangeStatus body, User *modifiable_user)
     //     create_log(&logger, ERROR);
     //     return false;
     // }
-    (*modifiable_user).status = new_status;
-    logger = "Status has been changed for " + (*modifiable_user).username + " to " + body.status();
+    logger = "Status has been changed for " + username + " to " + new_status;
     create_log(&logger, SUCCESS);
     return true;
 }
@@ -145,6 +179,7 @@ void *client_process_threading(void *params)
     auto response = new chat::ServerResponse;
 
     bool user_has_registered;
+    bool success;
 #pragma endregion
 
     logger = "Created a thread for socket " + std::to_string(local_socket_descriptor);
@@ -164,10 +199,10 @@ void *client_process_threading(void *params)
 
                 logger = "DISCONNECTING USER \"" + this_user.username + "\" (" + this_user.ip + ") FROM SERVER.";
                 create_log(&logger, INFO);
-                // set_client_status(&this_user, INACTIVE);
-                this_user.status = INACTIVE;
+                auto iter = registered_users.find(this_user.username);
+                iter->second.status = INACTIVE;
 
-                logger = "SET USER \"" + this_user.username + "\" (" + this_user.ip + ") AS " + this_user.status;
+                logger = "SET USER \"" + this_user.username + "\" (" + this_user.ip + ") AS " + INACTIVE;
                 create_log(&logger, SUCCESS);
 
                 if (close(local_socket_descriptor) == -1)
@@ -191,16 +226,30 @@ void *client_process_threading(void *params)
             {
                 continue;
             }
+
             chat::UserRegistration registration_form = (chat::UserRegistration)client_petition.registration();
+            auto iter = registered_users.find(registration_form.username());
+            if (iter != registered_users.end())
+            {
+                logger = "Pre-existent user. Setting as active and continuing.";
+                create_log(&logger, INFO);
+                iter->second.status = ACTIVE;
+                this_user = iter->second;
+            }
+            else
+            {
+                logger = "Found a new user with username " + registration_form.username() + ". Attempting to register.";
+                create_log(&logger, INFO);
 
-            this_user.username = registration_form.username();
-            strcpy(this_user.ip, registration_form.ip().c_str());
-            logger = "User in socket " + std::to_string(local_socket_descriptor) + " (" + this_user.username + ") has been registered.";
-            create_log(&logger, SUCCESS);
+                this_user.username = registration_form.username();
+                strcpy(this_user.ip, registration_form.ip().c_str());
+                logger = "User in socket " + std::to_string(local_socket_descriptor) + " (" + this_user.username + ") has been registered.";
+                create_log(&logger, SUCCESS);
 
-            // Add to the list of registered users
-            registered_users.push_back(this_user);
-
+                // Add to the list of registered users
+                this_user.status = ACTIVE;
+                registered_users.insert(std::pair<std::string, User>(this_user.username, this_user));
+            }
             // Send correct registration
             chat::ServerResponse *correct_registration_response = new chat::ServerResponse();
 
@@ -212,21 +261,26 @@ void *client_process_threading(void *params)
             strcpy(buffer, response.c_str());
             send(local_socket_descriptor, buffer, response.size() + 1, 0);
         }
-        this_user.status = ACTIVE;
+        // --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
         switch (client_petition.option())
         {
-            // User registration
-        case 1:
-            // If the user already exists, just update their status
-
-            break;
             // Connected Users
         case 2:
+            success = send_all_connected_users(local_socket_descriptor);
+            if (success)
+            {
+                logger = "Sent all connected users to the client in socket " + std::to_string(local_socket_descriptor);
+                create_log(&logger, SUCCESS);
+            }
+            else
+            {
+                logger = "There was an error trying to send all the connected users to the client in socket " + std::to_string(local_socket_descriptor);
+                create_log(&logger, ERROR);
+            }
             break;
             // Status Change
         case 3:
-            bool success;
-            success = change_status(client_petition.change(), &this_user);
+            success = change_status(client_petition.change(), this_user.username);
 
             response->set_option(3);
             if (success)
@@ -237,6 +291,7 @@ void *client_process_threading(void *params)
             {
                 response->set_code(500);
             }
+            success = false;
 
             response->SerializeToString(&serialized_sent_message);
             strcpy(buffer, serialized_sent_message.c_str());
@@ -252,6 +307,7 @@ void *client_process_threading(void *params)
         }
 
     } while (true);
+    pthread_exit(NULL);
 }
 
 void create_log(std::string *message, std::string log_status)

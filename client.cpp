@@ -4,12 +4,12 @@
 #include <pthread.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include <ifaddrs.h>
+// #include <ifaddrs.h>
 #include <queue>
 #include "protocol.pb.h"
 #include "errors.h"
 #include <sstream>
-#define BUFFERSIZE 4096
+#define BUFFERSIZE 8000
 
 // Variable initialization
 int connected_to_server;
@@ -23,15 +23,6 @@ struct Addresses
     in6_addr *sock2 = nullptr;
     int number;
 } address_controller;
-
-void *set_info(struct sockaddr *checkpoint)
-{
-    void *return_value;
-
-    return_value = nullptr;
-
-    return return_value;
-}
 
 void ask_information(std::string question, std::string *variable)
 {
@@ -123,6 +114,57 @@ void print_menu(int menu)
 }
 
 /**
+ * @brief Fetches all the students from the server
+ * 
+ * @param socket_file_descriptor Socket File Descriptor to access the Socket
+ * @return true If successful
+ */
+bool fetch_all_users(int socket_file_descriptor)
+{
+    auto request = new chat::ClientPetition();
+    auto body = new chat::UserRequest();
+    std::string serialized_message;
+    chat::ServerResponse wrapper;
+    chat::ConnectedUsersResponse container;
+    chat::UserInfo response;
+    char buffer[BUFFERSIZE];
+
+    body->set_user("everyone");
+
+    request->set_option(2);
+    request->set_allocated_users(body);
+    request->SerializeToString(&serialized_message);
+
+    strcpy(buffer, serialized_message.c_str());
+
+    send(socket_file_descriptor, buffer, serialized_message.size() + 1, 0);
+
+    system("clear");
+    std::cout << "Waiting for server response..." << std::endl;
+    recv(socket_file_descriptor, buffer, BUFFERSIZE, 0);
+    system("clear");
+
+    wrapper.ParseFromString(buffer);
+    if (wrapper.code() == 200)
+    {
+        container = (chat::ConnectedUsersResponse)wrapper.connectedusers();
+        int size = container.connectedusers_size();
+        std::cout << "Total number of users: " << size << std::endl;
+        std::cout << "Username\t\tStatus\t\tIP" << std::endl;
+
+        int i;
+        for (i = 0; i < size; i++)
+        {
+            response = (chat::UserInfo)container.connectedusers(i);
+            std::cout << response.username() << "\t\t" << response.status() << "\t\t" << response.ip() << std::endl;
+        }
+        std::string waiter;
+        std::cout << "Press enter to go back..." << std::endl;
+        getline(std::cin, waiter);
+    }
+}
+
+/**
  * @brief Sends a request to the server to change status
  * @param buffer Pointer to the buffer so that there is no memory duplicity
  * @param socket_file_descriptor File descriptor for the socket
@@ -175,6 +217,8 @@ bool change_status_request(int socket_file_descriptor, int new_status, std::stri
 
 int main(int argc, char const *argv[])
 {
+
+#pragma region CONNECTION
     bool set_values = false;
     std::string input;
     if (argc != 4)
@@ -345,7 +389,7 @@ int main(int argc, char const *argv[])
             break;
         }
     } while (true);
-
+#pragma endregion
     do
     {
         system("clear");
@@ -353,6 +397,7 @@ int main(int argc, char const *argv[])
         int suboption, option;
         print_header(server_ip, server_port, username);
         print_menu(1);
+        bool success;
 
         getline(std::cin, temp_option);
         option = atoi(temp_option.c_str());
@@ -362,29 +407,39 @@ int main(int argc, char const *argv[])
         {
             // Go to the general chat (fetch messages)
         case 1:
+#pragma region MESSAGES
             print_header(server_ip, server_port, username);
             temp_option = "";
             print_menu(2);
             getline(std::cin, temp_option);
             suboption = atoi(temp_option.c_str());
+#pragma region SUBMENU
             switch (suboption)
             {
                 // Go fetch the messages
             case 1:
+#pragma region FETCHMESSAGES
                 break;
+#pragma endregion
                 // Allow the user to send a message
             case 2:
+#pragma region PRIVATEMESSAGE
                 break;
-
+#pragma endregion
             default:
                 break;
             }
+#pragma endregion
             break;
+#pragma endregion
             // Try to send a direct message
         case 2:
             break;
             // Change the status
+
+            // FINISHED THIS ONE
         case 3:
+#pragma region STATUSCHANGE
             temp_option = "";
             print_menu(3);
             getline(std::cin, temp_option);
@@ -408,27 +463,42 @@ int main(int argc, char const *argv[])
                 getline(std::cin, temp_option);
             }
             break;
-            // List the users in a chat
+#pragma endregion
+            // List active users in the chat
+
+            // FINISHED THIS ONE
         case 4:
+#pragma region LISTACTIVEUSERS
+            success = fetch_all_users(sockfd);
+
             break;
+#pragma endregion
             // Show information about a user
         case 5:
+#pragma region SHOWINFOABOUTUSER
             break;
+#pragma endregion
             // Help
         case 6:
+#pragma region HELP
             break;
+#pragma endregion
 
             // Exit
         case 7:
+#pragma region EXIT
             std::cout << "Exited program. Press enter to continue...";
             getline(std::cin, temp_option);
             close(sockfd);
             exit(EXIT_SUCCESS);
             break;
+#pragma endregion
 
+#pragma region OTHER
         default:
             std::cout << "Unrecognized option" << std::endl;
             break;
+#pragma endregion
         }
     } while (true);
 }
